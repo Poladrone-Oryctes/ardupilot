@@ -303,6 +303,42 @@ class AutoTestRover(AutoTest):
         if ex:
             raise ex
 
+    def drive_max_rcin(self, timeout=30):
+        """Test max RC inputs"""
+        self.context_push()
+        ex = None
+
+        try:
+            self.progress("Testing max RC inputs")
+            self.change_mode("MANUAL")
+
+            self.wait_ready_to_arm()
+            self.arm_vehicle()
+
+            self.set_rc(3, 2000)
+            self.set_rc(1, 1000)
+
+            tstart = self.get_sim_time()
+            while self.get_sim_time_cached() - tstart < timeout:
+                m = self.mav.recv_match(type='VFR_HUD', blocking=True, timeout=1)
+                if m is not None:
+                    self.progress("Current speed: %f" % m.groundspeed)
+
+            # reduce throttle
+            self.set_rc(3, 1500)
+            self.set_rc(1, 1500)
+
+        except Exception as e:
+            self.progress("Caught exception: %s" %
+                          self.get_exception_stacktrace(e))
+            ex = e
+
+        self.disarm_vehicle()
+        self.context_pop()
+
+        if ex:
+            raise ex
+
     #################################################
     # AUTOTEST ALL
     #################################################
@@ -727,8 +763,8 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             tstart = self.get_sim_time_cached()
             while True:
                 if self.get_sim_time_cached() - tstart > 10:
-                    raise AutoTestTimeoutException("Did not stop")
-                print("Sending throttle of %u" % (throttle_override,))
+                    raise AutoTestTimeoutException("Did not speed back up")
+                self.progress("Sending throttle of %u" % (throttle_override,))
                 self.mav.mav.rc_channels_override_send(
                     1, # target system
                     1, # targe component
@@ -743,7 +779,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
                 m = self.mav.recv_match(type='VFR_HUD', blocking=True)
                 want_speed = 5.0
-                print("Speed=%f want=>%f" % (m.groundspeed, want_speed))
+                self.progress("Speed=%f want=>%f" % (m.groundspeed, want_speed))
 
                 if m.groundspeed > want_speed:
                     break
@@ -753,55 +789,62 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
             # check we revert to normal RC inputs when gcs overrides cease:
             self.progress("Waiting for RC to revert to normal RC input")
-            while True:
-                m = self.mav.recv_match(type='RC_CHANNELS', blocking=True)
-                print("%s" % m)
-                if m.chan3_raw == normal_rc_throttle:
-                    break
+            self.wait_rc_channel_value(3, normal_rc_throttle, timeout=10)
 
             self.start_subtest("Check override time of zero disables overrides")
             old = self.get_parameter("RC_OVERRIDE_TIME")
             ch = 2
             self.set_rc(ch, 1000)
             channels = [65535] * 18
-            channels[ch-1] = 1700
-            self.progress("Sending override message")
-
+            ch_override_value = 1700
+            channels[ch-1] = ch_override_value
+            channels[7] = 1234 # that's channel 8!
+            self.progress("Sending override message %u" % ch_override_value)
             self.mav.mav.rc_channels_override_send(
                 1, # target system
                 1, # targe component
                 *channels
             )
-            self.wait_rc_channel_value(ch, 1700)
+            # long timeout required here as we may have sent a lot of
+            # things via MAVProxy...
+            self.wait_rc_channel_value(ch, ch_override_value, timeout=30)
             self.set_parameter("RC_OVERRIDE_TIME", 0)
             self.wait_rc_channel_value(ch, 1000)
             self.set_parameter("RC_OVERRIDE_TIME", old)
-            self.wait_rc_channel_value(ch, 1700)
+            self.wait_rc_channel_value(ch, ch_override_value)
 
+            ch_override_value = 1720
+            channels[ch-1] = ch_override_value
+            self.progress("Sending override message %u" % ch_override_value)
             self.mav.mav.rc_channels_override_send(
                 1, # target system
                 1, # targe component
                 *channels
             )
-            self.wait_rc_channel_value(ch, 1700)
+            self.wait_rc_channel_value(ch, ch_override_value, timeout=10)
             self.set_parameter("RC_OVERRIDE_TIME", 0)
             self.wait_rc_channel_value(ch, 1000)
             self.set_parameter("RC_OVERRIDE_TIME", old)
-            self.wait_rc_channel_value(ch, 1700)
 
-            self.start_subtest("Check override time of -1 disables override timeouts")
             self.progress("Ensuring timeout works")
             self.wait_rc_channel_value(ch, 1000, timeout=5)
+            self.delay_sim_time(10)
+
             self.set_parameter("RC_OVERRIDE_TIME", 10)
             self.progress("Sending override message")
+
+            ch_override_value = 1730
+            channels[ch-1] = ch_override_value
+            self.progress("Sending override message %u" % ch_override_value)
             self.mav.mav.rc_channels_override_send(
                 1, # target system
                 1, # targe component
                 *channels
             )
-            self.wait_rc_channel_value(ch, 1700)
+            self.wait_rc_channel_value(ch, ch_override_value, timeout=10)
             tstart = self.get_sim_time()
-            self.wait_rc_channel_value(ch, 1000, timeout=12)
+            self.progress("Waiting for channel to revert to 1000 in ~10s")
+            self.wait_rc_channel_value(ch, 1000, timeout=15)
             delta = self.get_sim_time() - tstart
             if delta > 12:
                 raise NotAchievedException("Took too long to revert RC channel value (delta=%f)" % delta)
@@ -811,12 +854,15 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                                            (delta, min_delta))
             self.progress("Disabling RC override timeout")
             self.set_parameter("RC_OVERRIDE_TIME", -1)
+            ch_override_value = 1740
+            channels[ch-1] = ch_override_value
+            self.progress("Sending override message %u" % ch_override_value)
             self.mav.mav.rc_channels_override_send(
                 1, # target system
                 1, # targe component
                 *channels
             )
-            self.wait_rc_channel_value(ch, 1700)
+            self.wait_rc_channel_value(ch, ch_override_value, timeout=10)
             tstart = self.get_sim_time()
             while True:
                 # warning: this is get_sim_time() and can slurp messages on you!
@@ -830,8 +876,8 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
                     raise NotAchievedException("Did not get RC_CHANNELS")
                 channel_field = "chan%u_raw" % ch
                 m_value = getattr(m, channel_field)
-                if m_value != 1700:
-                    raise NotAchievedException("Value reverted after %f seconds when it should not have (got=%u) (want=%u)" % (delta, m_value, 1700))
+                if m_value != ch_override_value:
+                    raise NotAchievedException("Value reverted after %f seconds when it should not have (got=%u) (want=%u)" % (delta, m_value, ch_override_value))
             self.set_parameter("RC_OVERRIDE_TIME", old)
 
         except Exception as e:
@@ -899,7 +945,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
             while True:
                 if self.get_sim_time_cached() - tstart > 10:
                     raise AutoTestTimeoutException("Did not stop")
-                print("Sending normalized throttle of %u" % (throttle_override_normalized,))
+                self.progress("Sending normalized throttle of %u" % (throttle_override_normalized,))
                 self.mav.mav.manual_control_send(
                     1, # target system
                     32767, # x (pitch)
@@ -921,11 +967,7 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
 
             # check we revert to normal RC inputs when gcs overrides cease:
             self.progress("Waiting for RC to revert to normal RC input")
-            while True:
-                m = self.mav.recv_match(type='RC_CHANNELS', blocking=True)
-                print("%s" % m)
-                if m.chan3_raw == normal_rc_throttle:
-                    break
+            self.wait_rc_channel_value(3, normal_rc_throttle, timeout=10)
 
         except Exception as e:
             self.progress("Exception caught")
@@ -5019,6 +5061,10 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
              "Learn/Drive Square with Ch7 option",
              self.drive_square),
 
+            ("DriveMaxRCIN",
+             "Drive rover at max RC inputs",
+             self.drive_max_rcin),
+
             ("DriveMission",
              "Drive Mission %s" % "rover1.txt",
              lambda: self.drive_mission("rover1.txt")),
@@ -5157,16 +5203,16 @@ Brakes have negligible effect (with=%0.2fm without=%0.2fm delta=%0.2fm)
              "Accelerometer Calibration testing",
              self.accelcal),
 
-            ("DownLoadLogs", "Download logs", lambda:
-             self.log_download(
-                 self.buildlogs_path("Rover-log.bin"),
-                 upload_logs=len(self.fail_list) > 0)),
+            ("LogUpload",
+             "Upload logs",
+             self.log_upload),
             ])
         return ret
 
     def disabled_tests(self):
         return {
             "PolyFenceObjectAvoidanceBendyRuler": "currently broken",
+            "DriveMaxRCIN": "currently triggers Arithmetic Exception",
         }
 
     def rc_defaults(self):

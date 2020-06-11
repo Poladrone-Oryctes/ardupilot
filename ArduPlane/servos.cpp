@@ -361,6 +361,11 @@ void Plane::throttle_voltage_comp()
     // constrain read voltage to min and max params
     batt_voltage_resting_estimate = constrain_float(batt_voltage_resting_estimate,g2.fwd_thr_batt_voltage_min,g2.fwd_thr_batt_voltage_max);
 
+    // don't apply compensation if the voltage is excessively low
+    if (batt_voltage_resting_estimate < 1) {
+        return;
+    }
+
     // Scale the throttle up to compensate for voltage drop
     // Ratio = 1 when voltage = voltage max, ratio increases as voltage drops
     const float ratio = g2.fwd_thr_batt_voltage_max / batt_voltage_resting_estimate;
@@ -830,9 +835,6 @@ void Plane::servos_output(void)
     // cope with tailsitters and bicopters
     quadplane.tailsitter_output();
     quadplane.tiltrotor_bicopter();
-
-    // the mixers need pwm to be calculated now
-    SRV_Channels::calc_pwm();
 
     // run vtail and elevon mixers
     servo_output_mixers();

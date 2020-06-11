@@ -947,7 +947,7 @@ void NavEKF3_core::writeExtNavData(const Vector3f &pos, const Quaternion &quat, 
 {
     // limit update rate to maximum allowed by sensor buffers and fusion process
     // don't try to write to buffer until the filter has been initialised
-    if (((timeStamp_ms - extNavMeasTime_ms) < 70) || !statesInitialised) {
+    if (((timeStamp_ms - extNavMeasTime_ms) < frontend->extNavIntervalMin_ms) || !statesInitialised) {
         return;
     } else {
         extNavMeasTime_ms = timeStamp_ms;
@@ -963,11 +963,7 @@ void NavEKF3_core::writeExtNavData(const Vector3f &pos, const Quaternion &quat, 
     }
 
     extNavDataNew.pos = pos;
-    if (posErr > 0) {
-        extNavDataNew.posErr = posErr;
-    } else {
-        extNavDataNew.posErr = frontend->_gpsHorizPosNoise;
-    }
+    extNavDataNew.posErr = posErr;
 
     // calculate timestamp
     timeStamp_ms = timeStamp_ms - delay_ms;
@@ -986,6 +982,24 @@ void NavEKF3_core::writeExtNavData(const Vector3f &pos, const Quaternion &quat, 
     writeEulerYawAngle(yaw_rad, yaw_accuracy_rad, timeStamp_ms, 2);
 
     storedExtNav.push(extNavDataNew);
+}
+
+void NavEKF3_core::writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms)
+{
+    if ((timeStamp_ms - extNavVelMeasTime_ms) < frontend->extNavIntervalMin_ms) {
+        return;
+    }
+
+    extNavVelMeasTime_ms = timeStamp_ms - delay_ms;
+    useExtNavVel = true;
+    extNavVelNew.vel = vel;
+    extNavVelNew.err = err;
+    // Correct for the average intersampling delay due to the filter updaterate
+    timeStamp_ms -= localFilterTimeStep_ms/2;
+    // Prevent time delay exceeding age of oldest IMU data in the buffer
+    timeStamp_ms = MAX(timeStamp_ms,imuDataDelayed.time_ms);
+    extNavVelNew.time_ms = timeStamp_ms;
+    storedExtNavVel.push(extNavVelNew);
 }
 
 /*
