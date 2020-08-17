@@ -1,6 +1,5 @@
 #include <AP_HAL/AP_HAL.h>
 
-#include "AP_NavEKF2.h"
 #include "AP_NavEKF2_core.h"
 #include <AP_AHRS/AP_AHRS.h>
 #include <AP_Vehicle/AP_Vehicle.h>
@@ -10,8 +9,6 @@
 #include <AP_GPS/AP_GPS.h>
 #include <AP_Baro/AP_Baro.h>
 #include <AP_Compass/AP_Compass.h>
-
-#include <stdio.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -59,6 +56,8 @@ void NavEKF2_core::readRangeFinder(void)
                 }
                 storedRngMeasTime_ms[sensorIndex][rngMeasIndex[sensorIndex]] = imuSampleTime_ms - 25;
                 storedRngMeas[sensorIndex][rngMeasIndex[sensorIndex]] = sensor->distance_cm() * 0.01f;
+            } else {
+                continue;
             }
 
             // check for three fresh samples
@@ -892,6 +891,11 @@ void NavEKF2_core::getTimingStatistics(struct ekf_timing &_timing)
 
 void NavEKF2_core::writeExtNavData(const Vector3f &pos, const Quaternion &quat, float posErr, float angErr, uint32_t timeStamp_ms, uint16_t delay_ms, uint32_t resetTime_ms)
 {
+    // protect against NaN
+    if (pos.is_nan() || isnan(posErr) || quat.is_nan() || isnan(angErr)) {
+        return;
+    }
+
     // limit update rate to maximum allowed by sensor buffers and fusion process
     // don't try to write to buffer until the filter has been initialised
     if ((timeStamp_ms - extNavMeasTime_ms) < 20) {
@@ -919,7 +923,6 @@ void NavEKF2_core::writeExtNavData(const Vector3f &pos, const Quaternion &quat, 
     extNavDataNew.time_ms = timeStamp_ms;
 
     storedExtNav.push(extNavDataNew);
-
 }
 
 /*
@@ -1014,6 +1017,11 @@ void NavEKF2_core::writeDefaultAirSpeed(float airspeed)
 
 void NavEKF2_core::writeExtNavVelData(const Vector3f &vel, float err, uint32_t timeStamp_ms, uint16_t delay_ms)
 {
+    // protect against NaN
+    if (vel.is_nan() || isnan(err)) {
+        return;
+    }
+
     if ((timeStamp_ms - extNavVelMeasTime_ms) < 20) {
         return;
     }

@@ -70,7 +70,7 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
     // @Param: _TYPE
     // @DisplayName: Airspeed type
     // @Description: Type of airspeed sensor
-    // @Values: 0:None,1:I2C-MS4525D0,2:Analog,3:I2C-MS5525,4:I2C-MS5525 (0x76),5:I2C-MS5525 (0x77),6:I2C-SDP3X,7:I2C-DLVR-5in,8:UAVCAN,9:I2C-DLVR-10in
+    // @Values: 0:None,1:I2C-MS4525D0,2:Analog,3:I2C-MS5525,4:I2C-MS5525 (0x76),5:I2C-MS5525 (0x77),6:I2C-SDP3X,7:I2C-DLVR-5in,8:UAVCAN,9:I2C-DLVR-10in,10:I2C-DLVR-20in,11:I2C-DLVR-30in,12:I2C-DLVR-60in
     // @User: Standard
     AP_GROUPINFO_FLAGS("_TYPE", 0, AP_Airspeed, param[0].type, ARSPD_DEFAULT_TYPE, AP_PARAM_FLAG_ENABLE),
 
@@ -163,7 +163,7 @@ const AP_Param::GroupInfo AP_Airspeed::var_info[] = {
     // @Param: 2_TYPE
     // @DisplayName: Second Airspeed type
     // @Description: Type of 2nd airspeed sensor
-    // @Values: 0:None,1:I2C-MS4525D0,2:Analog,3:I2C-MS5525,4:I2C-MS5525 (0x76),5:I2C-MS5525 (0x77),6:I2C-SDP3X,7:I2C-DLVR-5in,8:UAVCAN,9:I2C-DLVR-10in
+    // @Values: 0:None,1:I2C-MS4525D0,2:Analog,3:I2C-MS5525,4:I2C-MS5525 (0x76),5:I2C-MS5525 (0x77),6:I2C-SDP3X,7:I2C-DLVR-5in,8:UAVCAN,9:I2C-DLVR-10in,10:I2C-DLVR-20in,11:I2C-DLVR-30in,12:I2C-DLVR-60in
     // @User: Standard
     AP_GROUPINFO_FLAGS("2_TYPE", 11, AP_Airspeed, param[1].type, 0, AP_PARAM_FLAG_ENABLE),
 
@@ -301,6 +301,21 @@ void AP_Airspeed::init()
             sensor[i] = new AP_Airspeed_DLVR(*this, i, 10);
 #endif // !HAL_MINIMIZE_FEATURES
             break;
+        case TYPE_I2C_DLVR_20IN:
+#if !HAL_MINIMIZE_FEATURES
+            sensor[i] = new AP_Airspeed_DLVR(*this, i, 20);
+#endif // !HAL_MINIMIZE_FEATURES
+            break;
+        case TYPE_I2C_DLVR_30IN:
+#if !HAL_MINIMIZE_FEATURES
+            sensor[i] = new AP_Airspeed_DLVR(*this, i, 30);
+#endif // !HAL_MINIMIZE_FEATURES
+            break;
+        case TYPE_I2C_DLVR_60IN:
+#if !HAL_MINIMIZE_FEATURES
+            sensor[i] = new AP_Airspeed_DLVR(*this, i, 60);
+#endif // !HAL_MINIMIZE_FEATURES
+            break;
         case TYPE_UAVCAN:
 #if HAL_WITH_UAVCAN
             sensor[i] = AP_Airspeed_UAVCAN::probe(*this, i);
@@ -368,8 +383,8 @@ void AP_Airspeed::calibrate(bool in_startup)
         state[i].cal.count = 0;
         state[i].cal.sum = 0;
         state[i].cal.read_count = 0;
+        GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Airspeed %u calibration started", i+1);
     }
-    GCS_SEND_TEXT(MAV_SEVERITY_INFO,"Airspeed calibration started");
 }
 
 /*

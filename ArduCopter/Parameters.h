@@ -549,7 +549,6 @@ public:
 
     // wheel encoder and winch
 #if WINCH_ENABLED == ENABLED
-    AP_WheelEncoder wheel_encoder;
     AP_Winch winch;
 #endif
 
@@ -614,6 +613,10 @@ public:
 #if MODE_ZIGZAG_ENABLED == ENABLED
     // we need a pointer to the mode for the G2 table
     void *mode_zigzag_ptr;
+#endif
+
+#if MODE_ACRO_ENABLED == ENABLED
+    AP_Int8 acro_options;
 #endif
 
 };

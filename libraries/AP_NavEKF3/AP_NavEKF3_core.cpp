@@ -3,9 +3,9 @@
 #include "AP_NavEKF3.h"
 #include "AP_NavEKF3_core.h"
 #include <AP_AHRS/AP_AHRS.h>
-#include <AP_Vehicle/AP_Vehicle.h>
 #include <GCS_MAVLink/GCS.h>
 #include <AP_GPS/AP_GPS.h>
+#include <AP_VisualOdom/AP_VisualOdom.h>
 
 extern const AP_HAL::HAL& hal;
 
@@ -51,8 +51,8 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
      */
 
     // Calculate the expected EKF time step
-    if (AP::ins().get_sample_rate() > 0) {
-        dtEkfAvg = 1.0f / AP::ins().get_sample_rate();
+    if (AP::ins().get_loop_rate_hz() > 0) {
+        dtEkfAvg = 1.0f / AP::ins().get_loop_rate_hz();
         dtEkfAvg = MAX(dtEkfAvg,EKF_TARGET_DT);
     } else {
         return false;
@@ -92,6 +92,14 @@ bool NavEKF3_core::setup_core(uint8_t _imu_index, uint8_t _core_index)
     if (_ahrs->airspeed_sensor_enabled()) {
         maxTimeDelay_ms = MAX(maxTimeDelay_ms , frontend->tasDelay_ms);
     }
+
+#if HAL_VISUALODOM_ENABLED
+    // include delay from visual odometry if enabled
+    AP_VisualOdom *visual_odom = AP::visualodom();
+    if ((visual_odom != nullptr) && visual_odom->enabled()) {
+        maxTimeDelay_ms = MAX(maxTimeDelay_ms, MIN(visual_odom->get_delay_ms(), 250));
+    }
+#endif
 
     // calculate the IMU buffer length required to accommodate the maximum delay with some allowance for jitter
     imu_buffer_length = (maxTimeDelay_ms / (uint16_t)(EKF_TARGET_DT_MS)) + 1;
@@ -225,7 +233,6 @@ void NavEKF3_core::InitialiseVariables()
     lastVelReset_ms = 0;
     lastPosResetD_ms = 0;
     lastRngMeasTime_ms = 0;
-    terrainHgtStableSet_ms = 0;
 
     // initialise other variables
     gpsNoiseScaler = 1.0f;
@@ -270,8 +277,9 @@ void NavEKF3_core::InitialiseVariables()
     gndOffsetValid =  false;
     validOrigin = false;
     takeoffExpectedSet_ms = 0;
-    expectGndEffectTakeoff = false;
+    expectTakeoff = false;
     touchdownExpectedSet_ms = 0;
+    expectGndEffectTakeoff = false;
     expectGndEffectTouchdown = false;
     gpsSpdAccuracy = 0.0f;
     gpsPosAccuracy = 0.0f;
@@ -343,8 +351,6 @@ void NavEKF3_core::InitialiseVariables()
     velOffsetNED.zero();
     posOffsetNED.zero();
     memset(&velPosObs, 0, sizeof(velPosObs));
-    posResetSource = DEFAULT;
-    velResetSource = DEFAULT;
 
     // range beacon fusion variables
     memset((void *)&rngBcnDataNew, 0, sizeof(rngBcnDataNew));
@@ -410,7 +416,6 @@ void NavEKF3_core::InitialiseVariables()
     extNavLastPosResetTime_ms = 0;
     extNavDataToFuse = false;
     extNavUsedForPos = false;
-    extNavVelNew = {};
     extNavVelDelayed = {};
     extNavVelToFuse = false;
     useExtNavVel = false;
@@ -439,6 +444,7 @@ void NavEKF3_core::InitialiseVariables()
     EKFGSF_yaw_reset_request_ms = 0;
     EKFGSF_yaw_reset_count = 0;
     EKFGSF_run_filterbank = false;
+    EKFGSF_yaw_valid_count = 0;
 
     effectiveMagCal = effective_magCal();
 }
@@ -546,8 +552,8 @@ bool NavEKF3_core::InitialiseFilterBootstrap(void)
     stateStruct.body_magfield.zero();
 
     // set the position, velocity and height
-    ResetVelocity();
-    ResetPosition();
+    ResetVelocity(resetDataSource::DEFAULT);
+    ResetPosition(resetDataSource::DEFAULT);
     ResetHeight();
 
     // define Earth rotation vector in the NED navigation frame
@@ -1669,6 +1675,10 @@ void NavEKF3_core::calcEarthRateNED(Vector3f &omega, int32_t latitude) const
 // set yaw from a single magnetometer sample
 void NavEKF3_core::setYawFromMag()
 {
+    if (!use_compass()) {
+        return;
+    }
+
     // read the magnetometer data
     readMagData();
 
@@ -1688,40 +1698,34 @@ void NavEKF3_core::setYawFromMag()
     resetQuatStateYawOnly(yawAngMeasured, sq(MAX(frontend->_yawNoise, 1.0e-2f)));
 }
 
-// update quaternion, mag field states and associated variances using magnetomer and declination data
-void NavEKF3_core::calcQuatAndFieldStates()
+// update mag field states and associated variances using magnetomer and declination data
+void NavEKF3_core::resetMagFieldStates()
 {
-    if (!use_compass()) {
-        return;
-    }
+    // Rotate Mag measurements into NED to set initial NED magnetic field states
 
     // update rotation matrix from body to NED frame
     stateStruct.quat.inverse().rotation_matrix(prevTnb);
 
-    // set yaw from a single mag sample
-    setYawFromMag();
-
-    // Rotate Mag measurements into NED to set initial NED magnetic field states
-    // Don't do this if the earth field has already been learned
-    if (!magFieldLearned) {
-        if (have_table_earth_field && frontend->_mag_ef_limit > 0) {
-            stateStruct.earth_magfield = table_earth_field_ga;
-        } else {
-            stateStruct.earth_magfield = prevTnb.transposed() * magDataDelayed.mag;
-        }
-
-        // set the NE earth magnetic field states using the published declination
-        // and set the corresponding variances and covariances
-        alignMagStateDeclination();
-
-        // set the remaining variances and covariances
-        zeroRows(P,18,21);
-        zeroCols(P,18,21);
-        P[18][18] = sq(frontend->_magNoise);
-        P[19][19] = P[18][18];
-        P[20][20] = P[18][18];
-        P[21][21] = P[18][18];
+    if (have_table_earth_field && frontend->_mag_ef_limit > 0) {
+        stateStruct.earth_magfield = table_earth_field_ga;
+    } else {
+        stateStruct.earth_magfield = prevTnb.transposed() * magDataDelayed.mag;
     }
+
+    // set the NE earth magnetic field states using the published declination
+    // and set the corresponding variances and covariances
+    alignMagStateDeclination();
+
+    // set the remaining variances and covariances
+    zeroRows(P,18,21);
+    zeroCols(P,18,21);
+    P[18][18] = sq(frontend->_magNoise);
+    P[19][19] = P[18][18];
+    P[20][20] = P[18][18];
+    P[21][21] = P[18][18];
+
+    // prevent reset of variances in ConstrainVariances()
+    inhibitMagStates = false;
 
     // record the fact we have initialised the magnetic field states
     recordMagReset();
