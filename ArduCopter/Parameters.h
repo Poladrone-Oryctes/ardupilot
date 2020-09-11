@@ -620,6 +620,11 @@ public:
     // Autonmous autorotation
     AC_Autorotation arot;
 #endif
+
+#if MODE_ZIGZAG_ENABLED == ENABLED
+    // we need a pointer to the mode for the G2 table
+    void *mode_zigzag_ptr;
+#endif
 };
 
 extern const AP_Param::Info        var_info[];
