@@ -26,6 +26,8 @@ extern const AP_HAL::HAL& hal;
 #include <AP_Math/AP_Math.h>
 
 #include "RC_Channel.h"
+//edited by LC
+bool RC_Channel::confirmed;
 
 #include <GCS_MAVLink/GCS.h>
 
@@ -471,6 +473,7 @@ void RC_Channel::init_aux_function(const aux_func_t ch_option, const aux_switch_
     case AUX_FUNC::GPS_DISABLE:
     case AUX_FUNC::KILL_IMU1:
     case AUX_FUNC::KILL_IMU2:
+    case AUX_FUNC::MOTOR_ESTOP_CONFIRM: // edited by LC
         do_aux_function(ch_option, ch_flag);
         break;
     default:
@@ -761,17 +764,39 @@ void RC_Channel::do_aux_function(const aux_func_t ch_option, const aux_switch_po
         AP::gps().force_disable(ch_flag == HIGH);
         break;
 
+    // edit by LC : add one more AUX_FUNC
+
+    case AUX_FUNC::MOTOR_ESTOP_CONFIRM:
+        switch(ch_flag){
+        case HIGH:{
+            confirmed = true;
+            break;
+        }
+        case MIDDLE:{
+            //nothing
+            break;
+        }
+        case LOW:{
+            confirmed = false;
+            break;
+        }
+        }
+        break;
+
     case AUX_FUNC::MOTOR_ESTOP:
         switch (ch_flag) {
         case HIGH: {
-            SRV_Channels::set_emergency_stop(true);
+            //edit by LC, added if case
+            if (confirmed == true){
+                SRV_Channels::set_emergency_stop(true);
 
-            // log E-stop
-            AP_Logger *logger = AP_Logger::get_singleton();
-            if (logger && logger->logging_enabled()) {
-                logger->Write_Event(DATA_MOTORS_EMERGENCY_STOPPED);
+                // log E-stop
+                AP_Logger *logger = AP_Logger::get_singleton();
+                if (logger && logger->logging_enabled()) {
+                    logger->Write_Event(DATA_MOTORS_EMERGENCY_STOPPED);
+                }
+                break;
             }
-            break;
         }
         case MIDDLE:
             // nothing

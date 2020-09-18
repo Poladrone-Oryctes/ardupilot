@@ -13,6 +13,10 @@ class RC_Channel {
 public:
     friend class SRV_Channels;
     friend class RC_Channels;
+
+    // EDITED BY LC "GLOBAL BOOLEAN FOR ELOCK CONFIRMATION"
+    static bool confirmed;
+    
     // Constructor
     RC_Channel(void);
 
@@ -98,7 +102,7 @@ public:
     // auxiliary switch support
     void init_aux();
     bool read_aux();
-
+    
     // Aux Switch enumeration
     enum class AUX_FUNC {
         DO_NOTHING =           0, // aux switch disabled
@@ -179,6 +183,7 @@ public:
         KILL_IMU1 =          100, // disable first IMU (for IMU failure testing)
         KILL_IMU2 =          101, // disable second IMU (for IMU failure testing)
         CAM_MODE_TOGGLE =    102, // Momentary switch to cycle camera modes
+        MOTOR_ESTOP_CONFIRM = 103, //edited by LC
         // if you add something here, make sure to update the documentation of the parameter in RC_Channel.cpp!
         // also, if you add an option >255, you will need to fix duplicate_options_exist
 
@@ -186,6 +191,7 @@ public:
         MAINSAIL =           207, // mainsail input
     };
     typedef enum AUX_FUNC aux_func_t;
+
 
 protected:
 
