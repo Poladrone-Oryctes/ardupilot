@@ -774,14 +774,17 @@ void RC_Channel::do_aux_function(const aux_func_t ch_option, const aux_switch_po
         switch(ch_flag){
         case HIGH:{
             confirmed = true;
+            gcs().send_text(MAV_SEVERITY_INFO, "MOTOR LOCK BUTTON ENGAGED");
             break;
         }
         case MIDDLE:{
-            //nothing
+            confirmed = false;
+            gcs().send_text(MAV_SEVERITY_INFO, "MOTOR LOCK BUTTON DISENGAGED");
             break;
         }
         case LOW:{
             confirmed = false;
+            gcs().send_text(MAV_SEVERITY_INFO, "MOTOR LOCK BUTTON DISENGAGED");
             break;
         }
         }
