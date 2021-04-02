@@ -169,13 +169,13 @@ void ModeZigZag::save_or_move_to_destination(Destination ab_dest)
                 // store point A
                 dest_A.x = curr_pos.x;
                 dest_A.y = curr_pos.y;
-                gcs().send_text(MAV_SEVERITY_INFO, "ZigZag: point A stored");
+                gcs().send_text(MAV_SEVERITY_INFO, "ZigZag: point B stored");
                 copter.Log_Write_Event(DATA_ZIGZAG_STORE_A);
             } else {
                 // store point B
                 dest_B.x = curr_pos.x;
                 dest_B.y = curr_pos.y;
-                gcs().send_text(MAV_SEVERITY_INFO, "ZigZag: point B stored");
+                gcs().send_text(MAV_SEVERITY_INFO, "ZigZag: point A stored");
                 copter.Log_Write_Event(DATA_ZIGZAG_STORE_B);
             }
             // if both A and B have been stored advance state
